@@ -42,6 +42,7 @@ maj_clean           = clean_module(maj)
 notifs_clean        = clean_module(notifs)
 journal_clean       = clean_module(journal)
 app_clean           = re.sub(r"import \{[^}]+\} from ['\"][^'\"]+['\"];?\n?", '', app)
+app_clean           = re.sub(r"^import ['\"][^'\"]+['\"];?\n?", '', app_clean, flags=re.MULTILINE)
 
 parts = [
     '<!DOCTYPE html>',

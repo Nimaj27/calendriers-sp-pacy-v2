@@ -212,6 +212,7 @@ export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = 
 export async function telechargerBilanPDF(params) {
   const doc = await genererBilanPDF(params);
   const annee = params.config?.annee || new Date().getFullYear();
-  const date = new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   doc.save(`bilan-tournee-calendriers-${annee}-${date}.pdf`);
 }

@@ -1,10 +1,10 @@
 {
-  "name": "Tournée Calendriers — SP Pacy (test)",
+  "name": "Tournée Calendriers — SP Pacy",
   "short_name": "Calendriers SP",
   "description": "Gestion de la tournée de vente de calendriers de l'Amicale des Sapeurs-Pompiers de Pacy-sur-Eure",
-  "id": "/calendriers-sp-pacy-v2/",
-  "start_url": "/calendriers-sp-pacy-v2/",
-  "scope": "/calendriers-sp-pacy-v2/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "display_override": [
     "standalone",
@@ -98,7 +98,7 @@
     {
       "name": "Mes secteurs",
       "short_name": "Secteurs",
-      "url": "/calendriers-sp-pacy-v2/#terrain",
+      "url": "./#terrain",
       "icons": [
         {
           "src": "icons/icon-96.png",
@@ -109,7 +109,7 @@
     {
       "name": "Tableau de bord",
       "short_name": "Bord",
-      "url": "/calendriers-sp-pacy-v2/#dashboard",
+      "url": "./#dashboard",
       "icons": [
         {
           "src": "icons/icon-96.png",

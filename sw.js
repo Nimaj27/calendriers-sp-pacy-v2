@@ -1,15 +1,14 @@
 // ============================================================
-// Service Worker — version modulaire
+// Service Worker — V3 production
 // Amicale SP Pacy-sur-Eure — Tournée Calendriers
 // ============================================================
 
-const VERSION      = "v2-2";
-const CACHE_APP    = `sp-app-${VERSION}`;      // code : renouvelé à chaque version
-const CACHE_STATIC = "sp-static-1";            // données stables : conservé entre versions
+const VERSION       = "v3-1";
+const CACHE_APP     = `sp-app-${VERSION}`;
+const CACHE_STATIC  = "sp-static-1";
+const CACHE_RUNTIME = "sp-runtime-v1";
+const PREFIXES_APP  = ["sp-app-", "sp-static-", "sp-runtime-"];
 
-// Modules volumineux qui ne changent quasiment jamais.
-// Ils vivent dans un cache séparé : une mise à jour du code ne force pas
-// leur retéléchargement (près de 320 Ko économisés à chaque publication).
 const STATIQUES = [
   "./js/geoloc.js",
   "./js/carte.js",
@@ -21,7 +20,6 @@ const STATIQUES = [
   "./icons/favicon-32.png"
 ];
 
-// Code applicatif, renouvelé à chaque publication
 const APPLICATIFS = [
   "./",
   "./index.html",
@@ -41,68 +39,144 @@ const APPLICATIFS = [
   "./js/maj.js"
 ];
 
+// Ces fichiers sont indispensables au démarrage. Si l'un d'eux manque,
+// l'installation du nouveau SW échoue plutôt que d'activer une PWA cassée.
+const APPLICATIFS_ESSENTIELS = [
+  "./index.html", "./css/style.css", "./js/app.js", "./js/firebase.js",
+  "./js/secteurs.js", "./js/tournee.js", "./js/historique.js"
+];
+
+async function ajouterSiAbsent(cache, url) {
+  const deja = await cache.match(url);
+  if (!deja) await cache.add(url);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const [cs, ca] = await Promise.all([caches.open(CACHE_STATIC), caches.open(CACHE_APP)]);
-    // allSettled : un fichier manquant ne fait pas échouer toute l'installation
-    await Promise.allSettled(STATIQUES.map(u => cs.add(u)));
-    await Promise.allSettled(APPLICATIFS.map(u => ca.add(u)));
+
+    // Données lourdes et stables : ne sont téléchargées que si absentes du cache partagé.
+    await Promise.all(STATIQUES.map(u => ajouterSiAbsent(cs, u)));
+
+    // Les ressources indispensables doivent toutes être présentes.
+    await Promise.all(APPLICATIFS_ESSENTIELS.map(u => ca.add(u)));
+
+    // Les extras n'empêchent pas une mise à jour de s'installer.
+    const extras = APPLICATIFS.filter(u => !APPLICATIFS_ESSENTIELS.includes(u));
+    await Promise.allSettled(extras.map(u => ca.add(u)));
   })());
-  // Pas de skipWaiting : la nouvelle version attend l'accord de l'utilisateur
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "ACTIVER_MAINTENANT") self.skipWaiting();
+  if (event.data?.type === "ACTIVER_MAINTENANT") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then(cles => Promise.all(
-      cles.filter(k => k !== CACHE_APP && k !== CACHE_STATIC).map(k => caches.delete(k))
-    ))
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const cles = await caches.keys();
+    // Ne jamais supprimer les caches d'autres PWA hébergées sur la même origine.
+    await Promise.all(cles
+      .filter(k => PREFIXES_APP.some(p => k.startsWith(p)))
+      .filter(k => ![CACHE_APP, CACHE_STATIC, CACHE_RUNTIME].includes(k))
+      .map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
-// Domaines toujours servis par le réseau
-function externe(url) {
-  return ["firebase", "gstatic", "google", "tile.openstreetmap",
-          "geopf", "jsdelivr", "cdnjs", "geo.api.gouv"]
+function estApiReseau(url) {
+  return ["tile.openstreetmap.org", "geopf.fr", "geo.api.gouv.fr"]
     .some(d => url.hostname.includes(d));
+}
+
+function estBibliothequeCacheable(url) {
+  return ["gstatic.com", "googleapis.com", "jsdelivr.net", "cdnjs.cloudflare.com"]
+    .some(d => url.hostname.includes(d));
+}
+
+async function cacheRuntime(request, strategie = "network-first") {
+  const cache = await caches.open(CACHE_RUNTIME);
+  if (strategie === "cache-first") {
+    const rep = await cache.match(request);
+    if (rep) return rep;
+    const net = await fetch(request);
+    if (net && (net.ok || net.type === "opaque")) await cache.put(request, net.clone());
+    return net;
+  }
+
+  try {
+    const net = await fetch(request);
+    if (net && (net.ok || net.type === "opaque")) await cache.put(request, net.clone());
+    return net;
+  } catch (e) {
+    const rep = await cache.match(request);
+    if (rep) return rep;
+    throw e;
+  }
 }
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  if (externe(url)) return;
 
-  const estStatique = STATIQUES.some(s => url.pathname.endsWith(s.replace("./", "")));
+  // APIs/cartes : réseau uniquement, elles n'empêchent pas le cœur de l'app de fonctionner hors-ligne.
+  if (estApiReseau(url)) return;
 
-  if (estStatique) {
-    // Cache d'abord : ces fichiers ne changent pas, inutile d'interroger le réseau
-    event.respondWith(
-      caches.match(event.request).then(rep => rep || fetch(event.request).then(r => {
-        if (r && r.status === 200) {
-          const copie = r.clone();
-          caches.open(CACHE_STATIC).then(c => c.put(event.request, copie)).catch(()=>{});
-        }
-        return r;
-      }))
-    );
+  // SDK Firebase et bibliothèques externes : on conserve une copie après usage
+  // afin de pouvoir redémarrer l'app sans réseau après une première utilisation en ligne.
+  if (url.origin !== self.location.origin && estBibliothequeCacheable(url)) {
+    const firebase = url.hostname.includes("gstatic.com") && url.pathname.includes("/firebasejs/");
+    event.respondWith(cacheRuntime(event.request, firebase ? "network-first" : "cache-first"));
     return;
   }
 
-  // Réseau d'abord, cache en secours : garantit le mode hors-ligne
-  event.respondWith(
-    fetch(event.request)
-      .then(rep => {
-        if (rep && rep.status === 200) {
-          const copie = rep.clone();
-          caches.open(CACHE_APP).then(c => c.put(event.request, copie)).catch(()=>{});
+  if (url.origin !== self.location.origin) return;
+
+  const estStatique = STATIQUES.some(s => url.pathname.endsWith(s.replace("./", "")));
+  if (estStatique) {
+    event.respondWith((async () => {
+      const rep = await caches.match(event.request);
+      if (rep) return rep;
+      const net = await fetch(event.request);
+      if (net?.ok) {
+        const c = await caches.open(CACHE_STATIC);
+        await c.put(event.request, net.clone());
+      }
+      return net;
+    })());
+    return;
+  }
+
+  // Navigation : réseau d'abord, page d'accueil hors-ligne en dernier recours.
+  if (event.request.mode === "navigate") {
+    event.respondWith((async () => {
+      try {
+        const net = await fetch(event.request);
+        if (net?.ok) {
+          const c = await caches.open(CACHE_APP);
+          await c.put(event.request, net.clone());
         }
-        return rep;
-      })
-      .catch(() => caches.match(event.request)
-        .then(r => r || caches.match("./index.html")))
-  );
+        return net;
+      } catch (e) {
+        return (await caches.match(event.request)) || (await caches.match("./index.html"));
+      }
+    })());
+    return;
+  }
+
+  // JS/CSS/images locales : réseau d'abord, cache en secours. Aucun fallback HTML
+  // n'est renvoyé à la place d'un module JavaScript.
+  event.respondWith((async () => {
+    try {
+      const net = await fetch(event.request);
+      if (net?.ok) {
+        const c = await caches.open(CACHE_APP);
+        await c.put(event.request, net.clone());
+      }
+      return net;
+    } catch (e) {
+      const rep = await caches.match(event.request);
+      if (rep) return rep;
+      throw e;
+    }
+  })());
 });

@@ -10,6 +10,13 @@ const CLE_HEURE_RESUME   = "sp_heure_resume";
 const HEURE_DEFAUT       = 20; // 20h
 
 // ── Support et permission ────────────────────────────────────────
+function dateLocaleISO(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function notifsDisponibles() {
   return "Notification" in window;
 }
@@ -39,19 +46,19 @@ export function setHeureResume(heure) {
 
 export function resumeDejaEnvoyeAujourdhui() {
   const dernier = localStorage.getItem(CLE_DERNIER_RESUME);
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = dateLocaleISO();
   return dernier === aujourdhui;
 }
 
 function marquerResumeEnvoye() {
-  localStorage.setItem(CLE_DERNIER_RESUME, new Date().toISOString().slice(0, 10));
+  localStorage.setItem(CLE_DERNIER_RESUME, dateLocaleISO());
 }
 
 // ── Construction du texte du résumé ─────────────────────────────
 // stats : retour de statsGlobalesTournee()
 // passages : liste complète des passages
 export function construireResume(stats, passages) {
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = dateLocaleISO();
   const passagesDuJour = (passages || []).filter(p => (p.datePassage || "").slice(0, 10) === aujourdhui);
 
   let collecteDuJour = 0;

@@ -157,27 +157,37 @@ export async function statsGlobalesTournee() {
 export async function lireConfig() { return fsGet(COLLECTIONS.CONFIG, "tournee"); }
 export async function sauvegarderConfig(data) { return fsSet(COLLECTIONS.CONFIG, "tournee", data); }
 
+
+// Cellule CSV compatible Excel : double les guillemets et neutralise les
+// préfixes interprétés comme des formules (=, +, -, @).
+export function celluleCSV(value) {
+  let v = String(value ?? "");
+  if (/^[=+\-@]/.test(v)) v = "'" + v;
+  return `"${v.replaceAll('"', '""')}"`;
+}
+
 export async function exporterBilanCSV() {
   const [passages, secteurs, equipes] = await Promise.all([fsGetAll(COLLECTIONS.PASSAGES), fsGetAll(COLLECTIONS.SECTEURS), fsGetAll(COLLECTIONS.EQUIPES)]);
   const secteurMap = Object.fromEntries(secteurs.map(s=>[s.id,s]));
-  let csv = "BILAN PAR SECTEUR\nSecteur;Commune;Équipe;Statut;Total collecté (€);Foyers visités;Absents\n";
-  for (const s of secteurs) csv += `"${s.nom}";"${s.commune}";"${s.equipNom||'-'}";"${s.statut}";"${(s.totalCollecte||0).toFixed(2)}";"${s.nbFoyersVisites||0}";"${s.nbFoyersAbsents||0}"\n`;
-  csv += "\n\nBILAN PAR ÉQUIPE\nÉquipe;Membres;Montant collecté (€);Nb passages\n";
+  const ligne = (...vals) => vals.map(celluleCSV).join(";") + "\n";
+  let csv = "BILAN PAR SECTEUR\n" + ligne("Secteur","Commune","Équipe","Statut","Total collecté (€)","Foyers visités","Absents");
+  for (const s of secteurs) csv += ligne(s.nom, s.commune, s.equipNom||'-', s.statut, (s.totalCollecte||0).toFixed(2), s.nbFoyersVisites||0, s.nbFoyersAbsents||0);
+  csv += "\n\nBILAN PAR ÉQUIPE\n" + ligne("Équipe","Membres","Montant collecté (€)","Nb passages");
   for (const e of equipes) {
     const eqP = passages.filter(p=>p.equipeId===e.id);
     const montant = eqP.filter(p=>p.statut==="don").reduce((s,p)=>s+Number(p.montant||0),0);
-    csv += `"${e.nom}";"${(e.membres||[]).join(', ')}";"${montant.toFixed(2)}";"${eqP.length}"\n`;
+    csv += ligne(e.nom, (e.membres||[]).join(', '), montant.toFixed(2), eqP.length);
   }
-  csv += "\n\nDÉTAIL DES PASSAGES\nDate;Équipe;Secteur;Commune;Adresse;Statut;Mode paiement;Montant (€);Nom donateur;Note\n";
+  csv += "\n\nDÉTAIL DES PASSAGES\n" + ligne("Date","Équipe","Secteur","Commune","Adresse","Statut","Mode paiement","Montant (€)","Nom donateur","Note");
   const sorted = [...passages].sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
   for (const p of sorted) {
     const s = secteurMap[p.secteurId]||{};
-    csv += `"${(p.datePassage||"").slice(0,10)}";"${p.equipeNom||''}";"${s.nom||''}";"${s.commune||''}";"${p.adresse||''}";"${p.statut}";"${p.modePaiement||''}";"${p.montant?Number(p.montant).toFixed(2):'0.00'}";"${p.nomDonateur||''}";"${p.note||''}"\n`;
+    csv += ligne((p.datePassage||"").slice(0,10), p.equipeNom||'', s.nom||'', s.commune||'', p.adresse||'', p.statut, p.modePaiement||'', p.montant?Number(p.montant).toFixed(2):'0.00', p.nomDonateur||'', p.note||'');
   }
-  csv += "\n\nFOYERS À RELANCER\nÉquipe;Secteur;Commune;Adresse;Note\n";
+  csv += "\n\nFOYERS À RELANCER\n" + ligne("Équipe","Secteur","Commune","Adresse","Note");
   for (const p of passages.filter(p=>p.aRelancer)) {
     const s = secteurMap[p.secteurId]||{};
-    csv += `"${p.equipeNom||''}";"${s.nom||''}";"${s.commune||''}";"${p.adresse||''}";"${p.note||''}"\n`;
+    csv += ligne(p.equipeNom||'', s.nom||'', s.commune||'', p.adresse||'', p.note||'');
   }
   return csv;
 }

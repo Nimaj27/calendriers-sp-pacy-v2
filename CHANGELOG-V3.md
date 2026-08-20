@@ -1,0 +1,23 @@
+# V3 — Correctifs de production
+
+- Réinitialisation Firestore en lots de 400 : fonctionne au-delà de 500 documents.
+- Suppression des PIN lors de la réinitialisation de saison.
+- Archivage des adresses en chunks de 300 pour rester largement sous la limite de taille d'un document Firestore.
+- Compatibilité de lecture avec les anciennes archives V1/V2.
+- Sauvegarde JSON incluant aussi les adresses des nouvelles archives en chunks.
+- Suppression d'une archive = suppression de ses chunks associés.
+- Révocation réelle des administrateurs retirés de la configuration.
+- Normalisation des emails administrateurs en minuscules.
+- Échappement HTML des principales données Firestore/utilisateur affichées via `innerHTML`.
+- Protection des arguments utilisés dans les anciens `onclick` inline.
+- CSV : guillemets échappés et neutralisation des formules Excel (=, +, -, @).
+- Dates de fichiers et bilans calculées dans le fuseau local au lieu de l'UTC.
+- Heures de passages affichées dans le fuseau local français du navigateur.
+- Service Worker : ne supprime plus les caches d'autres PWA de la même origine.
+- Service Worker : aucun fallback HTML pour les fichiers JS/CSS.
+- Service Worker : ressources essentielles obligatoires à l'installation.
+- Service Worker : données statiques lourdes non retéléchargées si déjà en cache.
+- Cache runtime des bibliothèques externes déjà utilisées pour améliorer le redémarrage hors-ligne.
+- Suppression du doublon de logique de mise à jour entre `install.js` et `maj.js`.
+- Manifest rendu portable entre GitHub Pages / sous-dossiers grâce aux URLs relatives.
+- `build.py` ne conserve plus les imports `./install.js` / `./maj.js` dans le monofichier généré.
