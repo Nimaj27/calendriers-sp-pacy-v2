@@ -3,7 +3,7 @@
 // Amicale SP Pacy-sur-Eure — Tournée Calendriers
 // ============================================================
 
-const VERSION      = "v2-1";
+const VERSION      = "v2-2";
 const CACHE_APP    = `sp-app-${VERSION}`;      // code : renouvelé à chaque version
 const CACHE_STATIC = "sp-static-1";            // données stables : conservé entre versions
 
