@@ -829,7 +829,12 @@ async function renderSecteurs() {
     const rows2d = parseCSV(text);
     if (rows2d.length < 2) { toast("CSV vide ou illisible", "error"); return; }
     const headers = rows2d[0];
-    let created = 0, errors = 0;
+    let created = 0, updated = 0, errors = 0;
+
+    // Index des secteurs existants par "nom|commune" pour éviter les doublons
+    const existants = await lireSecteurs();
+    const clef = (nom, commune) => `${nom.trim().toLowerCase()}|${commune.trim().toLowerCase()}`;
+    const index = new Map(existants.map(s => [clef(s.nom, s.commune), s]));
 
     for (let i = 1; i < rows2d.length; i++) {
       const values = rows2d[i];
@@ -838,21 +843,29 @@ async function renderSecteurs() {
 
       if (!row.nom || !row.commune) continue;
 
+      const donnees = {
+        nom: row.nom,
+        commune: row.commune,
+        description: row.description || '',
+        rues: row.rues ? row.rues.split(';').map(r => r.trim()).filter(Boolean) : [],
+        couleur: row.couleur || '#EF4444'
+      };
+
       try {
-        await creerSecteur({
-          nom: row.nom,
-          commune: row.commune,
-          description: row.description || '',
-          rues: row.rues ? row.rues.split(';').map(r => r.trim()).filter(Boolean) : [],
-          couleur: row.couleur || '#EF4444'
-        });
-        created++;
+        const existant = index.get(clef(row.nom, row.commune));
+        if (existant) {
+          await mettreAJourSecteur(existant.id, donnees);
+          updated++;
+        } else {
+          await creerSecteur(donnees);
+          created++;
+        }
       } catch(err) {
         console.error('Erreur import ligne', i, err);
         errors++;
       }
     }
-    toast(`Import terminé : ${created} secteur(s) créé(s)${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
+    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
     e.target.value = '';
   });
 
