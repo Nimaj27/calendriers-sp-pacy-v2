@@ -94,3 +94,84 @@ window.addEventListener('appinstalled', () => {
   fermerBanniere(false);
   localStorage.removeItem(CLE_INSTALL_REFUS);
 });
+
+// ============================================================
+// Détection des mises à jour de l'application
+// ============================================================
+
+const VERIF_MAJ_MS = 15 * 60 * 1000;   // vérification toutes les 15 minutes
+
+function afficherBanniereMAJ(registration) {
+  if (document.getElementById('maj-banniere')) return;
+
+  const el = document.createElement('div');
+  el.id = 'maj-banniere';
+  el.className = 'maj-banniere';
+  el.innerHTML = `
+    <div class="mb-txt">
+      <strong>Nouvelle version disponible</strong>
+      <span>Recharge pour en profiter — tes saisies sont conservées.</span>
+    </div>
+    <div class="mb-actions">
+      <button class="mb-recharger" data-action="maj">Recharger</button>
+      <button class="mb-fermer" data-action="fermer">Plus tard</button>
+    </div>`;
+  document.body.appendChild(el);
+
+  el.addEventListener('click', (ev) => {
+    const act = ev.target.dataset?.action;
+    if (act === 'fermer') { el.remove(); return; }
+    if (act === 'maj') {
+      const attente = registration.waiting;
+      if (attente) {
+        // Demander au nouveau Service Worker de prendre le relais
+        attente.postMessage({ type: 'ACTIVER_MAINTENANT' });
+        // Le rechargement se fera au changement de contrôleur
+        setTimeout(() => window.location.reload(), 400);
+      } else {
+        window.location.reload();
+      }
+    }
+  });
+}
+
+// Surveille l'arrivée d'une nouvelle version du Service Worker
+window.__surveillerMAJ = function (registration) {
+  if (!registration) return;
+
+  // Une version est déjà en attente (l'utilisateur a rechargé sans l'activer)
+  if (registration.waiting && navigator.serviceWorker.controller) {
+    afficherBanniereMAJ(registration);
+  }
+
+  // Une nouvelle version est en cours d'installation
+  registration.addEventListener('updatefound', () => {});
+  registration.onupdatefound = () => {
+    const nouveau = registration.installing;
+    if (!nouveau) return;
+    nouveau.addEventListener('statechange', () => {
+      // "installed" + un contrôleur existant = c'est une mise à jour, pas une première install
+      if (nouveau.state === 'installed' && navigator.serviceWorker.controller) {
+        afficherBanniereMAJ(registration);
+      }
+    });
+  };
+
+  // Vérifications périodiques et au retour au premier plan
+  const verifier = () => registration.update().catch(() => {});
+  setInterval(verifier, VERIF_MAJ_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') verifier();
+  });
+  window.addEventListener('online', verifier);
+};
+
+// Recharger une seule fois quand le nouveau Service Worker prend le contrôle
+let _dejaRecharge = false;
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_dejaRecharge) return;
+    _dejaRecharge = true;
+    window.location.reload();
+  });
+}

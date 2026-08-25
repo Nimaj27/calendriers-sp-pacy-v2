@@ -1,10 +1,5 @@
 # Version modulaire — dépôt de test
 
-## V3 — correctifs de production
-
-Cette archive intègre les correctifs détaillés dans `CHANGELOG-V3.md`. Pour la partie sécurité Firebase serveur, lire impérativement `SECURITE_FIREBASE.md` avant une mise en production publique.
-
-
 Cette version déploie les sources telles quelles, au lieu de les fusionner
 dans un fichier unique. Objectif : ne plus faire retélécharger 733 Ko aux
 équipiers à chaque correction.
