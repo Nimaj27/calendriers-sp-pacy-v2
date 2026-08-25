@@ -189,7 +189,8 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     // 3. Sinon, contour communal officiel
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
     if (!geojson) continue;
-    const couleur=getCouleurEquipe(secteur.equipeId,equipes);
+    // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie
+    const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
     // Communes découpées : bordure colorée + remplissage plus léger pour
     // que les éventuels chevauchements restent lisibles
     const style = communeDecoupee
