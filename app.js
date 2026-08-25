@@ -4104,18 +4104,22 @@ async function rafraichirModeRue() {
 // Surligne les adresses d'une rue active sur la mini carte du secteur
 async function surlignerRueSurCarte(rue) {
   const map = APP._terrainMap;
-  if (!map) return;
+  console.log("[surbrillance] rue=", rue, "map=", map);
+  if (!map) { console.warn("[surbrillance] carte non prête (APP._terrainMap absent)"); return; }
   retirerSurlignageRue();
 
   const secteurId = sessionStorage.getItem("secteurActif");
-  if (!secteurId) return;
+  if (!secteurId) { console.warn("[surbrillance] secteurId absent"); return; }
   const secteur = await lireSecteur(secteurId);
-  if (!secteur) return;
+  if (!secteur) { console.warn("[surbrillance] secteur introuvable"); return; }
+  console.log("[surbrillance] secteur=", secteur.nom, "commune=", secteur.commune);
 
   const infoRue = ruesDuSecteur(secteur).find(r => r.rue === rue);
   const restriction = infoRue ? infoRue.restriction : null;
+  console.log("[surbrillance] infoRue=", infoRue);
   const pts = coordsRue(secteur.commune, rue, restriction);
-  if (pts.length === 0) return;
+  console.log("[surbrillance] points trouvés=", pts.length, pts);
+  if (pts.length === 0) { console.warn("[surbrillance] aucune coordonnée pour cette rue"); return; }
 
   const layer = L.layerGroup(
     pts.map(p => L.circleMarker([p.lat, p.lon], {
@@ -4126,6 +4130,7 @@ async function surlignerRueSurCarte(rue) {
   APP._rueHighlightLayer = layer;
   const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lon]));
   if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
+  console.log("[surbrillance] calque ajouté avec", pts.length, "points");
 }
 
 function retirerSurlignageRue() {
