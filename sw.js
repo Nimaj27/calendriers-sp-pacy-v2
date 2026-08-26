@@ -5,7 +5,7 @@
 
 const VERSION       = "v3-2";
 const CACHE_APP     = `sp-app-${VERSION}`;
-const CACHE_STATIC  = "sp-static-1";
+const CACHE_STATIC  = "sp-static-2";
 const CACHE_RUNTIME = "sp-runtime-v1";
 const PREFIXES_APP  = ["sp-app-", "sp-static-", "sp-runtime-"];
 
