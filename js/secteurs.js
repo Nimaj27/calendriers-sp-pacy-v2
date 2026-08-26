@@ -5,9 +5,9 @@ import { COLLECTIONS as C2 } from "./firebase.js";
 export const STATUT_SECTEUR = { LIBRE:"libre", AFFECTE:"affecte", EN_COURS:"en_cours", TERMINE:"termine" };
 export const STATUT_LABEL   = { libre:"Non affecté", affecte:"Affecté", en_cours:"En cours", termine:"Terminé" };
 
-export async function creerSecteur({ nom, commune, description="", rues=[], couleur="#EF4444" }) {
+export async function creerSecteur({ nom, commune, description="", rues=[], couleur="#EF4444", objectifCalendriers=null }) {
   if (!nom || !commune) throw new Error("Nom et commune obligatoires");
-  return fsAdd(COLLECTIONS.SECTEURS, { nom, commune, description, rues, couleur, statut:STATUT_SECTEUR.LIBRE, equipeId:null, equipNom:null, totalCollecte:0, nbFoyersVisites:0, nbFoyersAbsents:0, nbFoyersTotal:0, dateDebut:null, dateFin:null });
+  return fsAdd(COLLECTIONS.SECTEURS, { nom, commune, description, rues, couleur, objectifCalendriers, statut:STATUT_SECTEUR.LIBRE, equipeId:null, equipNom:null, totalCollecte:0, nbFoyersVisites:0, nbFoyersAbsents:0, nbFoyersTotal:0, dateDebut:null, dateFin:null });
 }
 export async function mettreAJourSecteur(id, data) { return fsUpdate(COLLECTIONS.SECTEURS, id, data); }
 export async function supprimerSecteur(id) { return fsDelete(COLLECTIONS.SECTEURS, id); }

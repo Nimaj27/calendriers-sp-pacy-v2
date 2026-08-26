@@ -848,7 +848,8 @@ async function renderSecteurs() {
         commune: row.commune,
         description: row.description || '',
         rues: row.rues ? row.rues.split(';').map(r => r.trim()).filter(Boolean) : [],
-        couleur: row.couleur || '#EF4444'
+        couleur: row.couleur || '#EF4444',
+        objectifCalendriers: row.objectif ? Math.max(0, parseInt(row.objectif, 10) || 0) : null
       };
 
       try {
@@ -904,6 +905,7 @@ function renderSecteursList(secteurs) {
             <div class="secteur-commune-label">${h(s.commune)}</div>
             <div class="secteur-equipe">${s.equipNom ? '👥 ' + h(s.equipNom) : '— Non affecté'}</div>
             <div class="secteur-montant">${formatMontant(s.totalCollecte)}</div>
+            ${s.objectifCalendriers > 0 ? `<div class="secteur-objectif">🎯 Objectif : ${s.objectifCalendriers} calendriers</div>` : ''}
             ${s.rues?.length ? `<div class="secteur-rues">${h(s.rues.join(', '))}</div>` : ''}
           </div>
           <div class="secteur-card-actions">
@@ -1199,6 +1201,8 @@ function showSecteurModal(secteur = null) {
       <textarea id="s-rues" class="input textarea" rows="4">${h((secteur?.rues || []).join('\n'))}</textarea>
       <label class="label">Couleur d'affichage</label>
       <input id="s-couleur" type="color" class="input input--color" value="${secteur?.couleur || '#EF4444'}">
+      <label class="label">Objectif minimum de calendriers</label>
+      <input id="s-objectif" type="number" min="0" step="1" class="input" value="${secteur?.objectifCalendriers ?? ''}" placeholder="Ex: 150 (laisser vide si aucun objectif)">
       <div class="modal-actions">
         <button id="btn-save-secteur" class="btn btn--primary">${secteur ? "Enregistrer" : "Créer"}</button>
         <button class="btn btn--ghost" onclick="closeModal()">Annuler</button>
@@ -1212,10 +1216,12 @@ function showSecteurModal(secteur = null) {
     const description = document.getElementById("s-desc").value.trim();
     const rues     = document.getElementById("s-rues").value.split('\n').map(r => r.trim()).filter(Boolean);
     const couleur  = document.getElementById("s-couleur").value;
+    const objectifRaw = document.getElementById("s-objectif").value.trim();
+    const objectifCalendriers = objectifRaw ? Math.max(0, parseInt(objectifRaw, 10) || 0) : null;
     if (!nom || !commune) { toast("Nom et commune obligatoires", "error"); return; }
     try {
-      if (secteur) await mettreAJourSecteur(secteur.id, { nom, commune, description, rues, couleur });
-      else await creerSecteur({ nom, commune, description, rues, couleur });
+      if (secteur) await mettreAJourSecteur(secteur.id, { nom, commune, description, rues, couleur, objectifCalendriers });
+      else await creerSecteur({ nom, commune, description, rues, couleur, objectifCalendriers });
       toast(secteur ? "Secteur mis à jour ✅" : "Secteur créé ✅", "success");
       closeModal();
     } catch(e) { toast(e.message, "error"); }
@@ -3648,6 +3654,11 @@ function majStatsTerrain(secteur, passages) {
       <div class="ts-compteur-label">boîte${restantes !== 1 ? 's' : ''} restante${restantes !== 1 ? 's' : ''}</div>
       <div class="ts-barre"><div class="ts-barre-fill" style="width:${pct}%;background:${couleur}"></div></div>
       <div class="ts-compteur-detail">${traites} / ${totalBoites} traitée${traites !== 1 ? 's' : ''}${absents > 0 ? ` · ${absents} absent${absents > 1 ? 's' : ''} à revoir` : ''}</div>
+    </div>` : ''}
+    ${secteur.objectifCalendriers > 0 ? `
+    <div class="ts-objectif">
+      <span class="ts-objectif-lbl">🎯 Objectif du secteur</span>
+      <span class="ts-objectif-val">${distribues} / ${secteur.objectifCalendriers} calendriers${distribues >= secteur.objectifCalendriers ? ' ✅' : ''}</span>
     </div>` : ''}
     <div class="ts-chiffres">
       <div class="ts-item">
