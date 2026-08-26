@@ -96,7 +96,7 @@ const onAuth           = (cb) => onAuthStateChanged(auth, cb);
 
 async function isAdmin(email) {
   if (!email) return false;
-  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, email));
+  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, String(email).trim().toLowerCase()));
   return snap.exists();
 }
 
