@@ -325,6 +325,7 @@ body {
 .secteur-equipe { font-size: .88rem; color: var(--ardoise-mid); margin-bottom: var(--sp-2); }
 .secteur-commune-label { font-size: .72rem; font-weight: 600; color: var(--ardoise-mid); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-2); }
 .secteur-montant { font-size: 1.1rem; font-weight: 700; color: var(--vert); }
+.secteur-objectif { font-size: .78rem; font-weight: 600; color: var(--orange); margin-top: 2px; }
 .secteur-rues { font-size: .78rem; color: var(--ardoise-mid); margin-top: var(--sp-2); line-height: 1.4; }
 .secteur-card-actions { display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); flex-wrap: wrap; background: var(--gris-fond); }
 
@@ -907,6 +908,15 @@ body {
 .ts-val { font-size: 1.05rem; font-weight: 700; color: var(--ardoise); }
 .ts-item--montant .ts-val { color: var(--vert); }
 .ts-lbl { font-size: .68rem; color: var(--ardoise-mid); line-height: 1.2; }
+
+/* ── Objectif minimum de calendriers (fixé par le bureau) ────── */
+.ts-objectif {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  background: #FFF7ED; border: 1.5px solid var(--orange);
+  border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4);
+}
+.ts-objectif-lbl { font-size: .82rem; color: var(--orange); font-weight: 600; }
+.ts-objectif-val { font-size: .92rem; color: var(--orange); font-weight: 800; }
 
 /* ── Compteur sur les cartes de secteur (accueil équipier) ──── */
 .terrain-secteur-reste { margin-top: var(--sp-2); }
