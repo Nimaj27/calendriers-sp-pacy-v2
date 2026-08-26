@@ -17,7 +17,7 @@ const COMMUNES_INSEE = {
   "Hardencourt-Cocherel":"27312","Saint-Aquilin-de-Pacy":"27448","Gadencourt":"27273"
 };
 const COULEUR_STATUT = { libre:"#9CA3AF", affecte:"#3B82F6", en_cours:"#EAB308", termine:"#22C55E" };
-const PALETTE_EQUIPES = [
+export const PALETTE_EQUIPES = [
   "#EF4444","#F97316","#EAB308","#84CC16","#22C55E","#10B981","#14B8A6","#06B6D4","#0EA5E9","#3B82F6",
   "#6366F1","#8B5CF6","#A855F7","#D946EF","#EC4899","#F43F5E","#B91C1C","#C2410C","#A16207","#4D7C0F",
   "#15803D","#047857","#0F766E","#0E7490","#0369A1","#1D4ED8","#4338CA","#6D28D9","#7E22CE","#A21CAF",
@@ -189,7 +189,8 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     // 3. Sinon, contour communal officiel
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
     if (!geojson) continue;
-    const couleur=getCouleurEquipe(secteur.equipeId,equipes);
+    // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie
+    const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
     // Communes découpées : bordure colorée + remplissage plus léger pour
     // que les éventuels chevauchements restent lisibles
     const style = communeDecoupee

@@ -1,7 +1,7 @@
 import {
   onAuth, loginGoogle, getLoginRedirect, logoutGoogle, loginPin, isAdmin,
   isOnline, onNetworkChange, assurerSession, estAnonyme,
-  COLLECTIONS, fsGet, fsSet, fsGetAll, fsListenDoc
+  COLLECTIONS, fsGet, fsSet, fsDelete, fsGetAll, fsListenDoc
 } from "./firebase.js";
 import {
   creerEquipe, mettreAJourEquipe, supprimerEquipe,
@@ -10,7 +10,7 @@ import {
   foyersARelancer, marquerRelance, supprimerPassage, modifierPassage, verifierDoublonAdresse,
   ecouterPassagesSecteur,
   lireConfig, sauvegarderConfig,
-  exporterBilanCSV, telechargerCSV, effacerTousLesPassages,
+  exporterBilanCSV, telechargerCSV, celluleCSV, effacerTousLesPassages,
   STATUT_PASSAGE, STATUT_PASSAGE_LABEL, MODE_PAIEMENT
 } from "./tournee.js";
 import {
@@ -28,7 +28,7 @@ import {
 import {
   archiverSaison, reinitialiserSaison, lireSaison, lireToutesLesSaisons,
   saisirSaisonManuelle, supprimerSaison, comparerSaisons,
-  chargerHistoriqueAdresses, resumeHistorique, normAdresse
+  chargerHistoriqueAdresses, resumeHistorique, normAdresse, exporterHistoriqueComplet
 } from "./historique.js";
 import {
   PALIERS, getPalier, pourcentCompletionEquipe, BADGES,
@@ -37,9 +37,9 @@ import {
 import { genererBilanPDF, telechargerBilanPDF } from "./pdf.js";
 import { vocalDisponible, analyserPhrase, ecouterVocal } from "./vocal.js";
 import { tracer, lireJournal, viderJournal, ACTIONS, ACTION_LABEL, ecartCumule } from "./journal.js";
-import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, nbFoyersSecteur, ruesDuSecteur } from "./geoloc.js";
+import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur } from "./geoloc.js";
 import {
-  initCarte, afficherSecteursSurCarte, afficherSecteurUnique, secteurALaPosition
+  initCarte, afficherSecteursSurCarte, afficherSecteurUnique, secteurALaPosition, PALETTE_EQUIPES
 } from "./carte.js";
 
 // Modules à effet de bord : invitation à installer et détection de mise à jour
@@ -87,6 +87,38 @@ function setLoading(btn, loading) {
   if (!btn) return;
   if (loading) { btn.dataset.orig = btn.textContent; btn.textContent = "…"; btn.disabled = true; }
   else { btn.textContent = btn.dataset.orig || btn.textContent; btn.disabled = false; }
+}
+
+// Échappement systématique des données affichées via innerHTML.
+// Les valeurs venant de Firestore ou des saisies utilisateur ne doivent jamais
+// être interprétées comme du HTML exécutable.
+function h(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// Argument JavaScript sûr lorsqu'une ancienne portion d'interface utilise encore
+// un gestionnaire onclick inline. Le JSON est ensuite échappé pour l'attribut HTML.
+function ja(value) {
+  return h(JSON.stringify(String(value ?? "")));
+}
+
+function dateLocaleISO(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function heureLocale(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatMontant(val) {
@@ -370,14 +402,14 @@ function afficherChoixMembre(equipe, membres) {
         <div class="login-logo">
           <img src="${LOGO_SP}" alt="SP Pacy" style="width:64px;height:64px;object-fit:contain;border-radius:50%;">
           <div class="login-logo-text">
-            <span class="login-logo-title">${equipe.nom}</span>
+            <span class="login-logo-title">${h(equipe.nom)}</span>
             <span class="login-logo-sub">Qui es-tu ?</span>
           </div>
         </div>
         <p class="login-hint">Sélectionne ton nom pour que tes saisies soient identifiées.</p>
         <div class="membres-choix">
           ${membres.map(m => `
-            <button class="membre-btn" data-membre="${m.replace(/"/g, '&quot;')}">${m}</button>
+            <button class="membre-btn" data-membre="${h(m)}">${h(m)}</button>
           `).join('')}
         </div>
       </div>
@@ -473,7 +505,7 @@ function layoutAdmin(activeHash, content) {
           `).join('')}
         </ul>
         <div class="sidebar-footer">
-          <span class="sidebar-user">${APP.user?.email || ''}</span>
+          <span class="sidebar-user">${h(APP.user?.email || '')}</span>
           <button id="btn-logout" class="btn btn--ghost btn--sm">Déconnexion</button>
         </div>
       </nav>
@@ -571,14 +603,14 @@ async function renderDashboard() {
     const legend = document.getElementById("map-legend");
     if (legend) {
       legend.innerHTML = `<span><i style="background:#9CA3AF"></i> Non affecté</span>` +
-        equipes.map((eq, i) => `<span><i style="background:${PALETTE_EQUIPES[equipes.map(e=>e.id).sort().indexOf(eq.id) % PALETTE_EQUIPES.length]}"></i> ${eq.nom}</span>`).join('');
+        equipes.map((eq, i) => `<span><i style="background:${PALETTE_EQUIPES[equipes.map(e=>e.id).sort().indexOf(eq.id) % PALETTE_EQUIPES.length]}"></i> ${h(eq.nom)}</span>`).join('');
     }
   }
 
   document.getElementById("btn-export")?.addEventListener("click", async () => {
     try {
       const csv = await exporterBilanCSV();
-      const date = new Date().toISOString().slice(0,10);
+      const date = dateLocaleISO();
       telechargerCSV(csv, `bilan-tournee-${date}.csv`);
       toast("Export téléchargé !", "success");
     } catch(e) { toast("Erreur export : " + e.message, "error"); }
@@ -668,9 +700,9 @@ async function renderDashboard() {
             <tbody>
               ${secteursBloques.map(s => `
                 <tr>
-                  <td><strong>${s.nom}</strong></td>
-                  <td>${s.commune}</td>
-                  <td>${s.equipNom || '—'}</td>
+                  <td><strong>${h(s.nom)}</strong></td>
+                  <td>${h(s.commune)}</td>
+                  <td>${h(s.equipNom || '—')}</td>
                   <td style="color:${s.joursEcoules >= 7 ? 'var(--rouge)' : 'var(--orange)'};font-weight:600;">
                     ${s.joursEcoules} jour${s.joursEcoules > 1 ? 's' : ''}
                   </td>
@@ -696,7 +728,7 @@ async function renderDashboard() {
             <div class="ranking-card">
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
-                <span class="ranking-nom">${eq.nom}</span>
+                <span class="ranking-nom">${h(eq.nom)}</span>
                 <span class="ranking-palier" title="${palier.label} — ${pct}% terminé">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
@@ -797,7 +829,12 @@ async function renderSecteurs() {
     const rows2d = parseCSV(text);
     if (rows2d.length < 2) { toast("CSV vide ou illisible", "error"); return; }
     const headers = rows2d[0];
-    let created = 0, errors = 0;
+    let created = 0, updated = 0, errors = 0;
+
+    // Index des secteurs existants par "nom|commune" pour éviter les doublons
+    const existants = await lireSecteurs();
+    const clef = (nom, commune) => `${nom.trim().toLowerCase()}|${commune.trim().toLowerCase()}`;
+    const index = new Map(existants.map(s => [clef(s.nom, s.commune), s]));
 
     for (let i = 1; i < rows2d.length; i++) {
       const values = rows2d[i];
@@ -806,21 +843,29 @@ async function renderSecteurs() {
 
       if (!row.nom || !row.commune) continue;
 
+      const donnees = {
+        nom: row.nom,
+        commune: row.commune,
+        description: row.description || '',
+        rues: row.rues ? row.rues.split(';').map(r => r.trim()).filter(Boolean) : [],
+        couleur: row.couleur || '#EF4444'
+      };
+
       try {
-        await creerSecteur({
-          nom: row.nom,
-          commune: row.commune,
-          description: row.description || '',
-          rues: row.rues ? row.rues.split(';').map(r => r.trim()).filter(Boolean) : [],
-          couleur: row.couleur || '#EF4444'
-        });
-        created++;
+        const existant = index.get(clef(row.nom, row.commune));
+        if (existant) {
+          await mettreAJourSecteur(existant.id, donnees);
+          updated++;
+        } else {
+          await creerSecteur(donnees);
+          created++;
+        }
       } catch(err) {
         console.error('Erreur import ligne', i, err);
         errors++;
       }
     }
-    toast(`Import terminé : ${created} secteur(s) créé(s)${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
+    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
     e.target.value = '';
   });
 
@@ -852,14 +897,14 @@ function renderSecteursList(secteurs) {
         <div class="secteur-card secteur-card--${s.statut}" data-id="${s.id}">
           <div class="secteur-card-header">
             <span class="secteur-dot" style="background:${s.couleur || '#EF4444'}"></span>
-            <strong>${s.nom}</strong>
+            <strong>${h(s.nom)}</strong>
             <span class="badge badge--${s.statut}">${STATUT_LABEL[s.statut]}</span>
           </div>
           <div class="secteur-card-body">
-            <div class="secteur-commune-label">${s.commune}</div>
-            <div class="secteur-equipe">${s.equipNom ? '👥 ' + s.equipNom : '— Non affecté'}</div>
+            <div class="secteur-commune-label">${h(s.commune)}</div>
+            <div class="secteur-equipe">${s.equipNom ? '👥 ' + h(s.equipNom) : '— Non affecté'}</div>
             <div class="secteur-montant">${formatMontant(s.totalCollecte)}</div>
-            ${s.rues?.length ? `<div class="secteur-rues">${s.rues.join(', ')}</div>` : ''}
+            ${s.rues?.length ? `<div class="secteur-rues">${h(s.rues.join(', '))}</div>` : ''}
           </div>
           <div class="secteur-card-actions">
             <button class="btn btn--sm btn--ghost" onclick="ficheDeRoute('${s.id}')" title="Fiche de route imprimable">🖨️</button>
@@ -914,7 +959,7 @@ window.ficheDeRoute = async (secteurId) => {
     { day:'numeric', month:'long', year:'numeric' });
 
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
-<title>Fiche de route — ${secteur.nom}</title>
+<title>Fiche de route — ${h(secteur.nom)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   @page { size:A4 portrait; margin:11mm 9mm 9mm; }
@@ -1009,12 +1054,12 @@ window.ficheDeRoute = async (secteurId) => {
 <div class="head">
   <img src="${LOGO_SP}" alt="">
   <div class="head-txt">
-    <h1>${secteur.nom}</h1>
-    <div class="commune">${secteur.commune}</div>
+    <h1>${h(secteur.nom)}</h1>
+    <div class="commune">${h(secteur.commune)}</div>
     <div class="amicale">Amicale des Sapeurs-Pompiers de Pacy-sur-Eure</div>
   </div>
   <div class="head-eq">
-    ${secteur.equipNom ? `<strong>${secteur.equipNom}</strong>` : ''}
+    ${secteur.equipNom ? `<strong>${h(secteur.equipNom)}</strong>` : ''}
     Éditée le ${dateJour}
   </div>
 </div>
@@ -1032,13 +1077,13 @@ ${blocs.map(b => {
     const inh = inhab.has(c);
     const nt  = noteParAdr[c];
     return `<div class="cel${fait?' cel--fait':''}${inh?' cel--inhab':''}">
-      <span class="n">${n}</span>${nt?`<span class="nt">${nt.slice(0,13)}</span>`:''}
+      <span class="n">${n}</span>${nt?`<span class="nt">${h(nt.slice(0,13))}</span>`:''}
     </div>`;
   });
   const reste = (COLS - (cels.length % COLS)) % COLS;
   return `<div class="rue">
     <div class="rue-head">
-      <h2>${b.rue}</h2>
+      <h2>${h(b.rue)}</h2>
       ${b.partagee?'<span class="tag">portion</span>':''}
       <span class="cnt">${b.nums.length} boîte${b.nums.length>1?'s':''}</span>
     </div>
@@ -1059,7 +1104,7 @@ ${blocs.map(b => {
   ${notes.length ? `<div class="card">
     <h3>📌 Notes du secteur</h3>
     <div class="notes-l">
-      ${notes.slice(0,8).map(n=>`<div><b>${n.adresse}</b> — <span>${n.texte}</span></div>`).join('')}
+      ${notes.slice(0,8).map(n=>`<div><b>${h(n.adresse)}</b> — <span>${h(n.texte)}</span></div>`).join('')}
       ${notes.length>8?`<div style="color:#b4b8c2">… et ${notes.length-8} autre${notes.length-8>1?'s':''}</div>`:''}
     </div>
   </div>` : ''}
@@ -1083,7 +1128,7 @@ ${blocs.map(b => {
 
 <div class="foot">
   <span>SDIS 27 · Amicale de Pacy-sur-Eure</span>
-  <span>${secteur.nom} — ${secteur.commune}</span>
+  <span>${h(secteur.nom)} — ${h(secteur.commune)}</span>
 </div>
 
 <div class="noprint"><button onclick="window.print()">🖨️ Imprimer cette fiche</button></div>
@@ -1117,7 +1162,7 @@ window.affecterSecteur = async (secteurId) => {
       <h2>Affecter une équipe</h2>
       <select id="sel-equipe" class="input">
         <option value="">— Aucune (désaffecter) —</option>
-        ${equipes.map(e => `<option value="${e.id}" data-nom="${e.nom}">${e.nom}</option>`).join('')}
+        ${equipes.map(e => `<option value="${e.id}" data-nom="${h(e.nom)}">${h(e.nom)}</option>`).join('')}
       </select>
       <div class="modal-actions">
         <button id="btn-affecter" class="btn btn--primary">Confirmer</button>
@@ -1145,13 +1190,13 @@ function showSecteurModal(secteur = null) {
     <div class="modal-inner">
       <h2>${secteur ? "Modifier le secteur" : "Nouveau secteur"}</h2>
       <label class="label">Nom du secteur *</label>
-      <input id="s-nom" class="input" value="${secteur?.nom || ''}" placeholder="Ex: Centre-ville Nord">
+      <input id="s-nom" class="input" value="${h(secteur?.nom || '')}" placeholder="Ex: Centre-ville Nord">
       <label class="label">Commune *</label>
-      <input id="s-commune" class="input" value="${secteur?.commune || ''}" placeholder="Ex: Pacy-sur-Eure">
+      <input id="s-commune" class="input" value="${h(secteur?.commune || '')}" placeholder="Ex: Pacy-sur-Eure">
       <label class="label">Description</label>
-      <input id="s-desc" class="input" value="${secteur?.description || ''}" placeholder="Informations complémentaires">
+      <input id="s-desc" class="input" value="${h(secteur?.description || '')}" placeholder="Informations complémentaires">
       <label class="label">Rues / zones (une par ligne)</label>
-      <textarea id="s-rues" class="input textarea" rows="4">${(secteur?.rues || []).join('\n')}</textarea>
+      <textarea id="s-rues" class="input textarea" rows="4">${h((secteur?.rues || []).join('\n'))}</textarea>
       <label class="label">Couleur d'affichage</label>
       <input id="s-couleur" type="color" class="input input--color" value="${secteur?.couleur || '#EF4444'}">
       <div class="modal-actions">
@@ -1331,10 +1376,10 @@ function renderEquipesList(equipes) {
             const nbR = (e.remises || []).length;
             return `
             <tr>
-              <td><strong>${e.nom}</strong></td>
+              <td><strong>${h(e.nom)}</strong></td>
               <td>${e.pin ? `<code class="pin-code">${e.pin}</code>`
                 : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}</td>
-              <td>${(e.membres || []).join(', ') || '—'}</td>
+              <td>${h((e.membres || []).join(', ') || '—')}</td>
               <td>${remis > 0
                 ? `<button class="btn-remis" onclick="voirRemises('${e.id}')">${formatMontant(remis)}<small>${nbR} remise${nbR>1?'s':''}</small></button>`
                 : '<span style="color:var(--ardoise-mid);font-size:.8rem">—</span>'}</td>
@@ -1370,7 +1415,7 @@ window.voirRemises = async (equipeId) => {
   modal.classList.remove("hidden");
   modal.innerHTML = `
     <div class="modal-inner">
-      <h2>Remises — ${equipe.nom}</h2>
+      <h2>Remises — ${h(equipe.nom)}</h2>
       <div class="vr-resume">
         <div><span>Collecté</span><strong>${formatMontant(collecte)}</strong></div>
         <div><span>Remis</span><strong>${formatMontant(remis)}</strong></div>
@@ -1390,7 +1435,7 @@ window.voirRemises = async (equipeId) => {
                 <td>${r.especes ? formatMontant(r.especes) : '—'}</td>
                 <td>${r.cheques ? formatMontant(r.cheques) : '—'}</td>
                 <td><strong>${formatMontant(r.total)}</strong></td>
-                <td>${r.parQui || '—'}</td>
+                <td>${h(r.parQui || '—')}</td>
                 <td><button class="btn btn--sm btn--danger" onclick="supprRemise('${equipeId}','${r.id}')">🗑️</button></td>
               </tr>
             `).join('')}
@@ -1430,11 +1475,11 @@ function showEquipeModal(equipe = null) {
     <div class="modal-inner">
       <h2>${equipe ? "Modifier l'équipe" : "Nouvelle équipe"}</h2>
       <label class="label">Nom de l'équipe *</label>
-      <input id="e-nom" class="input" value="${equipe?.nom || ''}" placeholder="Ex: Équipe Alpha">
+      <input id="e-nom" class="input" value="${h(equipe?.nom || '')}" placeholder="Ex: Équipe Alpha">
       <label class="label">Code PIN (4 chiffres) *</label>
       <input id="e-pin" class="input" maxlength="4" inputmode="numeric" value="${equipe?.pin || ''}" placeholder="0000">
       <label class="label">Membres (un par ligne)</label>
-      <textarea id="e-membres" class="input textarea" rows="5">${(equipe?.membres || []).join('\n')}</textarea>
+      <textarea id="e-membres" class="input textarea" rows="5">${h((equipe?.membres || []).join('\n'))}</textarea>
       <div class="modal-actions">
         <button id="btn-save-equipe" class="btn btn--primary">${equipe ? "Enregistrer" : "Créer"}</button>
         <button class="btn btn--ghost" onclick="closeModal()">Annuler</button>
@@ -1470,7 +1515,7 @@ async function renderPassages() {
     <div class="filter-bar">
       <select id="filter-secteur" class="input input--sm">
         <option value="">Tous les secteurs</option>
-        ${secteurs.map(s => `<option value="${s.id}">${s.commune} – ${s.nom}</option>`).join('')}
+        ${secteurs.map(s => `<option value="${s.id}">${h(s.commune)} – ${h(s.nom)}</option>`).join('')}
       </select>
     </div>
     <div id="passages-list"><div class="loader">Chargement…</div></div>
@@ -1510,9 +1555,9 @@ function renderPassagesList(passages, secteurs) {
             const s = secteurMap[p.secteurId] || {};
             return `<tr class="tr--${p.statut}">
               <td>${(p.datePassage || '').slice(0,10)}</td>
-              <td>${p.equipeNom || '—'}</td>
-              <td>${s.nom || '—'}</td>
-              <td>${p.adresse || '—'}</td>
+              <td>${h(p.equipeNom || '—')}</td>
+              <td>${h(s.nom || '—')}</td>
+              <td>${h(p.adresse || '—')}</td>
               <td><span class="badge badge--${p.statut}">${STATUT_PASSAGE_LABEL[p.statut] || p.statut}</span></td>
               <td>${p.statut === 'don' ? formatMontant(p.montant) : '—'}</td>
               <td>${p.modePaiement || '—'}</td>
@@ -1555,10 +1600,10 @@ async function renderRelances() {
       const groupes = grouperRelances(passages, sm);
       for (const g of groupes) {
         for (const r of g.rues) {
-          csv += `"${g.secteur}";"${g.commune}";"${r.rue}";"${r.numeros.join(', ')}";"${g.equipe}";"${r.notes.join(' | ')}"\n`;
+          csv += [g.secteur, g.commune, r.rue, r.numeros.join(', '), g.equipe, r.notes.join(' | ')].map(celluleCSV).join(';') + "\n";
         }
       }
-      telechargerCSV(csv, `relances-${new Date().toISOString().slice(0,10)}.csv`);
+      telechargerCSV(csv, `relances-${dateLocaleISO()}.csv`);
       toast("Feuille de relance téléchargée", "success");
     } catch(e) { toast("Erreur : " + e.message, "error"); }
     setLoading(btn, false);
@@ -1626,29 +1671,29 @@ async function chargerRelances() {
         <div class="relance-secteur-head">
           <div>
             <strong>${g.secteur}</strong>
-            <span class="relance-commune">${g.commune}</span>
+            <span class="relance-commune">${h(g.commune)}</span>
           </div>
           <div class="relance-meta">
-            <span>👥 ${g.equipe}</span>
+            <span>👥 ${h(g.equipe)}</span>
             <span class="relance-badge">${g.total} foyer${g.total>1?'s':''}</span>
           </div>
         </div>
         ${g.rues.map(r => `
           <div class="relance-rue">
-            <div class="relance-rue-nom">${r.rue}</div>
+            <div class="relance-rue-nom">${h(r.rue)}</div>
             <div class="relance-numeros">
               ${r.passages.map(p => {
                 const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
                 const adr = (p.adresse||'').trim();
                 const m = adr.match(/^(\d+\s*[a-zA-Z]?)\s+/);
                 const num = m ? m[1].trim() : (adr || '?');
-                return `<button class="relance-num" title="${adr}${j!==null?` — absent depuis ${j} j`:''}${p.note?` — ${p.note}`:''}"
+                return `<button class="relance-num" title="${adr}${j!==null?` — absent depuis ${j} j`:''}${p.note?` — ${h(p.note)}`:''}"
                           onclick="traiterRelance('${p.id}','${p.secteurId}')">
                           ${num}${j !== null && j >= 7 ? '<span class="relance-vieux">!</span>' : ''}
                         </button>`;
               }).join('')}
             </div>
-            ${r.notes.length ? `<div class="relance-notes">📝 ${r.notes.join(' · ')}</div>` : ''}
+            ${r.notes.length ? `<div class="relance-notes">📝 ${h(r.notes.join(' · '))}</div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -1667,7 +1712,7 @@ window.traiterRelance = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Résultat de la relance</h2>
-      <p class="login-hint">${p.adresse || '(adresse non précisée)'}${p.note ? ` — ${p.note}` : ''}</p>
+      <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}</p>
 
       <div class="passage-statuts" style="margin:16px 0;">
         <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don">💰 Don</button>
@@ -1692,7 +1737,7 @@ window.traiterRelance = async (passageId, secteurId) => {
       </div>
 
       <label class="label">Note</label>
-      <input id="rl-note" class="input" value="${(p.note||'').replace(/"/g,'&quot;')}" placeholder="Optionnel">
+      <input id="rl-note" class="input" value="${h(p.note||'')}" placeholder="Optionnel">
 
       <div class="modal-actions">
         <button id="rl-save" class="btn btn--primary">💾 Enregistrer</button>
@@ -1887,7 +1932,7 @@ function afficherComparaison(comp) {
         <tbody>
           ${comp.comparaisonSecteurs.map(s => `
             <tr>
-              <td>${s.nom}<br><small style="color:var(--ardoise-mid)">${s.commune}</small></td>
+              <td>${h(s.nom)}<br><small style="color:var(--ardoise-mid)">${h(s.commune)}</small></td>
               <td>${formatMontant(s.montantA)}</td>
               <td>${s.montantB !== null ? formatMontant(s.montantB) : '—'}</td>
               <td style="color:${tendanceColor(s.tendance)};font-weight:600;">
@@ -1907,7 +1952,7 @@ function afficherComparaison(comp) {
         <tbody>
           ${comp.comparaisonEquipes.map(eq => `
             <tr>
-              <td>${eq.nom}</td>
+              <td>${h(eq.nom)}</td>
               <td>${formatMontant(eq.montantA)}</td>
               <td>${eq.montantB !== null ? formatMontant(eq.montantB) : '—'}</td>
               <td style="color:${tendanceColor(eq.tendance)};font-weight:600;">
@@ -1944,7 +1989,7 @@ window.voirDetailSaison = async (annee) => {
           <thead><tr><th>Secteur</th><th>Équipe</th><th>Montant</th></tr></thead>
           <tbody>
             ${(saison.secteurs || []).map(s => `
-              <tr><td>${s.nom}</td><td>${s.equipeNom || '—'}</td><td>${formatMontant(s.totalCollecte)}</td></tr>
+              <tr><td>${h(s.nom)}</td><td>${h(s.equipeNom || '—')}</td><td>${formatMontant(s.totalCollecte)}</td></tr>
             `).join('')}
           </tbody>
         </table>
@@ -2214,7 +2259,7 @@ async function renderStatistiques() {
             <tbody>
               ${lignesSecteur.map(d => `
                 <tr>
-                  <td><strong>${d.nom}</strong>${d.commune !== d.nom ? `<br><small style="color:var(--ardoise-mid)">${d.commune}</small>` : ''}</td>
+                  <td><strong>${h(d.nom)}</strong>${d.commune !== d.nom ? `<br><small style="color:var(--ardoise-mid)">${h(d.commune)}</small>` : ''}</td>
                   <td>${d.avancement !== null ? `${d.avancement.toFixed(0)}%<br><small style="color:var(--ardoise-mid)">${d.visites}/${d.boites}</small>` : '—'}</td>
                   <td>${d.tauxPlacement !== null
                         ? `<strong style="color:${coulTaux(d.tauxPlacement)}">${d.tauxPlacement.toFixed(0)}%</strong><br><small style="color:var(--ardoise-mid)">${d.calendriers} cal.</small>`
@@ -2272,7 +2317,7 @@ async function renderStatistiques() {
     document.getElementById("btn-export-stats")?.addEventListener("click", () => {
       let csv = "Secteur;Commune;Boîtes;Visitées;Avancement (%);Calendriers;Taux placement (%);Dons;Don moyen (€);Refus;Taux refus (%);Absents;Taux absence (%);Collecté (€)\n";
       for (const d of lignesSecteur) {
-        csv += `"${d.nom}";"${d.commune}";"${d.boites}";"${d.visites}";`
+        csv += [d.nom, d.commune, d.boites, d.visites].map(celluleCSV).join(';') + ';' 
              + `"${d.avancement !== null ? d.avancement.toFixed(1) : ''}";"${d.calendriers}";`
              + `"${d.tauxPlacement !== null ? d.tauxPlacement.toFixed(1) : ''}";"${d.dons}";`
              + `"${d.donMoyen.toFixed(2)}";"${d.refus}";"${d.tauxRefus.toFixed(1)}";`
@@ -2282,13 +2327,13 @@ async function renderStatistiques() {
       for (const h of heures) {
         csv += `"${h.heure}h";"${h.passages}";"${h.dons}";"${h.taux.toFixed(1)}";"${h.moyenne.toFixed(2)}"\n`;
       }
-      telechargerCSV(csv, `statistiques-${new Date().toISOString().slice(0,10)}.csv`);
+      telechargerCSV(csv, `statistiques-${dateLocaleISO()}.csv`);
       toast("Statistiques exportées", "success");
     });
 
   } catch(e) {
     document.getElementById("stats-content").innerHTML =
-      `<p class="empty-state">Erreur : ${e.message}</p>`;
+      `<p class="empty-state">Erreur : ${h(e.message)}</p>`;
   }
 }
 
@@ -2370,7 +2415,7 @@ async function renderJournal() {
                   ${d ? d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}) : '—'}
                   <br><small style="color:var(--ardoise-mid)">${d ? d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : ''}</small>
                 </td>
-                <td>${e.parQui || '—'}${e.equipeNom ? `<br><small style="color:var(--ardoise-mid)">${e.equipeNom}</small>` : ''}</td>
+                <td>${h(e.parQui || '—')}${e.equipeNom ? `<br><small style="color:var(--ardoise-mid)">${h(e.equipeNom)}</small>` : ''}</td>
                 <td><span class="jr-badge jr-badge--${e.action}">${ACTION_LABEL[e.action] || e.action}</span>
                     ${e.contexte ? `<br><small style="color:var(--ardoise-mid)">${e.contexte}</small>` : ''}</td>
                 <td style="font-size:.82rem">${e.avant || '—'}</td>
@@ -2392,7 +2437,7 @@ async function renderJournal() {
     afficher();
   } catch(e) {
     document.getElementById("journal-content").innerHTML =
-      `<p class="empty-state">Erreur de chargement : ${e.message}</p>`;
+      `<p class="empty-state">Erreur de chargement : ${h(e.message)}</p>`;
   }
 
   document.getElementById("jr-recherche")?.addEventListener("input", afficher);
@@ -2404,10 +2449,10 @@ async function renderJournal() {
       const d = e.date ? new Date(e.date) : null;
       const ec = (e.montantApres || 0) - (e.montantAvant || 0);
       csv += `"${d ? d.toLocaleDateString('fr-FR') : ''}";"${d ? d.toLocaleTimeString('fr-FR') : ''}";`
-           + `"${e.parQui || ''}";"${e.equipeNom || ''}";"${ACTION_LABEL[e.action] || e.action}";`
+            + [e.parQui || '', e.equipeNom || '', ACTION_LABEL[e.action] || e.action].map(celluleCSV).join(';') + ';' 
            + `"${e.contexte || ''}";"${e.avant || ''}";"${e.apres || ''}";"${ec.toFixed(2)}"\n`;
     }
-    telechargerCSV(csv, `journal-modifications-${new Date().toISOString().slice(0,10)}.csv`);
+    telechargerCSV(csv, `journal-modifications-${dateLocaleISO()}.csv`);
     toast("Journal exporté", "success");
   });
 }
@@ -2433,7 +2478,7 @@ async function renderConfig() {
       <label class="label">Objectif de collecte (€)</label>
       <input id="cfg-objectif" class="input" type="number" value="${config.objectif || ''}">
       <label class="label">Message affiché aux Amicalistes</label>
-      <textarea id="cfg-message" class="input textarea" rows="3">${config.messageEquipiers || ''}</textarea>
+      <textarea id="cfg-message" class="input textarea" rows="3">${h(config.messageEquipiers || '')}</textarea>
       <label class="label">Admins autorisés (emails, un par ligne)</label>
       <textarea id="cfg-admins" class="input textarea" rows="5">${(config.admins || []).join('\n')}</textarea>
       <button id="btn-save-config" class="btn btn--primary">💾 Enregistrer</button>
@@ -2674,7 +2719,7 @@ async function renderConfig() {
         fsGetAll(COLLECTIONS.SECTEURS),
         fsGetAll(COLLECTIONS.EQUIPES),
         fsGetAll(COLLECTIONS.PASSAGES),
-        fsGetAll("historique_saisons"),
+        exporterHistoriqueComplet(),
         lireConfig()
       ]);
       let pins = {};
@@ -2693,7 +2738,7 @@ async function renderConfig() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `sauvegarde-calendriers-${new Date().toISOString().slice(0,10)}.json`;
+      a.download = `sauvegarde-calendriers-${dateLocaleISO()}.json`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       toast(`Sauvegarde : ${secteurs.length} secteurs · ${equipes.length} équipes · ${passages.length} passages`, "success");
@@ -2704,7 +2749,8 @@ async function renderConfig() {
   });
 
   document.getElementById("btn-save-config")?.addEventListener("click", async () => {
-    const admins = document.getElementById("cfg-admins").value.split('\n').map(e => e.trim()).filter(Boolean);
+    const admins = [...new Set(document.getElementById("cfg-admins").value
+      .split('\n').map(e => e.trim().toLowerCase()).filter(Boolean))];
     try {
       await sauvegarderConfig({
         annee:           Number(document.getElementById("cfg-annee").value),
@@ -2714,9 +2760,14 @@ async function renderConfig() {
         messageEquipiers: document.getElementById("cfg-message").value.trim(),
         admins
       });
-      // Mettre à jour la collection admins
+      // Synchronisation réelle de /admins : ajout ET révocation des anciens comptes.
+      const existants = await fsGetAll(COLLECTIONS.ADMINS);
+      const autorises = new Set(admins);
+      for (const ancien of existants) {
+        if (!autorises.has(String(ancien.id).toLowerCase())) await fsDelete(COLLECTIONS.ADMINS, ancien.id);
+      }
       for (const email of admins) {
-        await fsSet("admins", email, { email, grantedAt: new Date().toISOString() });
+        await fsSet(COLLECTIONS.ADMINS, email, { email, grantedAt: new Date().toISOString() });
       }
       toast("Configuration sauvegardée ✅", "success");
     } catch(e) { toast(e.message, "error"); }
@@ -2735,7 +2786,7 @@ async function renderTerrain() {
     <div class="terrain-layout">
       <header class="terrain-header">
         <div class="terrain-brand">🚒 SP Pacy — Tournée Calendriers</div>
-        <div class="terrain-equipe">👥 ${APP.equipeNom}${APP.membre ? ` · ${APP.membre}` : ''}</div>
+        <div class="terrain-equipe">👥 ${h(APP.equipeNom)}${APP.membre ? ` · ${h(APP.membre)}` : ''}</div>
         ${renderNetworkBadge()}
         <button id="btn-mon-bilan" class="btn btn--ghost btn--sm" title="Mon bilan">📊</button>
         <button id="btn-logout-terrain" class="btn btn--ghost btn--sm">Quitter</button>
@@ -2803,13 +2854,13 @@ async function chargerRelancesEquipe(secteurs) {
         </div>
         ${Object.values(parSecteur).map(s => `
           <div class="terrain-relance-secteur">
-            <div class="terrain-relance-secteur-nom">${s.nom}</div>
+            <div class="terrain-relance-secteur-nom">${h(s.nom)}</div>
             ${Object.entries(s.rues).map(([rue, nums]) => `
               <div class="terrain-relance-rue">
-                <span class="terrain-relance-rue-nom">${rue}</span>
+                <span class="terrain-relance-rue-nom">${h(rue)}</span>
                 <span class="terrain-relance-nums">
                   ${nums.map(n => `<button class="terrain-relance-num"
-                      title="${n.jours !== null ? `absent depuis ${n.jours} j` : ''}${n.note ? ' — '+n.note : ''}"
+                      title="${n.jours !== null ? `absent depuis ${n.jours} j` : ''}${n.note ? ' — '+h(n.note) : ''}"
                       onclick="traiterRelance('${n.id}','${n.sid}')">${n.num}${n.jours !== null && n.jours >= 7 ? '!' : ''}</button>`).join('')}
                 </span>
               </div>
@@ -2846,19 +2897,19 @@ function bindDetectionSecteur(secteurs) {
         const s = r.secteur;
         box.className = "detect-resultat detect-resultat--ok";
         box.innerHTML = `
-          <div class="dr-titre">📍 Tu es dans <strong>${s.nom}</strong></div>
-          <div class="dr-sous">${s.commune} · position à ±${pos.precision} m</div>
+          <div class="dr-titre">📍 Tu es dans <strong>${h(s.nom)}</strong></div>
+          <div class="dr-sous">${h(s.commune)} · position à ±${pos.precision} m</div>
           <button class="btn btn--primary btn--sm btn--full" onclick="naviguerTerrain('${s.id}')">
             Ouvrir ce secteur →
           </button>`;
       } else if (r.candidats && r.candidats.length) {
         box.className = "detect-resultat detect-resultat--multi";
         box.innerHTML = `
-          <div class="dr-titre">📍 Tu es sur ${r.candidats[0].commune}</div>
+          <div class="dr-titre">📍 Tu es sur ${h(r.candidats[0].commune)}</div>
           <div class="dr-sous">Plusieurs de tes secteurs s'y trouvent — choisis :</div>
           ${r.candidats.map(s => `
             <button class="btn btn--ghost btn--sm btn--full" style="margin-top:4px"
-              onclick="naviguerTerrain('${s.id}')">${s.nom}</button>`).join('')}`;
+              onclick="naviguerTerrain('${s.id}')">${h(s.nom)}</button>`).join('')}`;
       } else {
         box.className = "detect-resultat detect-resultat--vide";
         box.innerHTML = `Tu n'es dans aucun de tes secteurs (position à ±${pos.precision} m).<br>
@@ -2866,7 +2917,7 @@ function bindDetectionSecteur(secteurs) {
       }
     } catch(e) {
       box.className = "detect-resultat detect-resultat--erreur";
-      box.innerHTML = `⚠️ ${e.message}`;
+      box.innerHTML = `⚠️ ${h(e.message)}`;
     }
     setLoading(btn, false);
   });
@@ -2907,8 +2958,8 @@ function renderTerrainSecteurs(secteurs) {
           <div class="terrain-secteur-header">
             <span class="terrain-secteur-dot" style="background:${s.couleur || '#EF4444'}"></span>
             <div>
-              <div class="terrain-secteur-nom">${s.nom}</div>
-              <div class="terrain-secteur-commune">${s.commune}</div>
+              <div class="terrain-secteur-nom">${h(s.nom)}</div>
+              <div class="terrain-secteur-commune">${h(s.commune)}</div>
             </div>
             <span class="badge badge--${s.statut}">${STATUT_LABEL[s.statut]}</span>
           </div>
@@ -2960,8 +3011,8 @@ async function renderTerrainPassages() {
       <header class="terrain-header">
         <button class="btn btn--ghost btn--sm" onclick="naviguer('#terrain')">← Retour</button>
         <div class="terrain-header-title">
-          <div class="terrain-secteur-titre">${secteur.nom}</div>
-          <div class="terrain-secteur-commune">${secteur.commune}</div>
+          <div class="terrain-secteur-titre">${h(secteur.nom)}</div>
+          <div class="terrain-secteur-commune">${h(secteur.commune)}</div>
         </div>
         <span class="badge badge--${secteur.statut}">${STATUT_LABEL[secteur.statut]}</span>
         ${renderNetworkBadge()}
@@ -3030,6 +3081,7 @@ async function renderTerrainPassages() {
 
   // Mini carte du secteur
   initCarte("terrain-secteur-map", { zoom: 13, scrollWheelZoom: false }).then(map => {
+    APP._terrainMap = map;
     afficherSecteurUnique(map, secteur);
   });
 
@@ -3098,8 +3150,8 @@ async function renderTerrainPassages() {
           boxSugg.innerHTML = `
             <div class="geoloc-header">📍 Position détectée (±${pos.precision} m)</div>
             ${proches.map((a, i) => `
-              <button class="geoloc-item" data-adresse="${a.adresse.replace(/"/g,'&quot;')}">
-                <span class="geoloc-adresse">${a.adresse}</span>
+              <button class="geoloc-item" data-adresse="${h(a.adresse)}">
+                <span class="geoloc-adresse">${h(a.adresse)}</span>
                 <span class="geoloc-dist">${a.distance} m</span>
               </button>
             `).join('')}
@@ -3116,7 +3168,7 @@ async function renderTerrainPassages() {
         }
       } catch (e) {
         boxSugg.className = "geoloc-suggestions geoloc-suggestions--erreur";
-        boxSugg.innerHTML = `⚠️ ${e.message}`;
+        boxSugg.innerHTML = `⚠️ ${h(e.message)}`;
       }
       setLoading(btnGeo, false);
     });
@@ -3310,7 +3362,7 @@ async function renderTerrainPassages() {
               .map(p => {
                 const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
                 return `<button class="terrain-relance-item" onclick="corrigerPassage('${p.id}','${secteurId}')">
-                  <span class="terrain-relance-adr">${p.adresse || '(sans adresse)'}</span>
+                  <span class="terrain-relance-adr">${h(p.adresse || '(sans adresse)')}</span>
                   ${j !== null ? `<span class="terrain-relance-jours">${j} j</span>` : ''}
                 </button>`;
               }).join('')}
@@ -3327,13 +3379,13 @@ async function renderTerrainPassages() {
       <div class="passage-item passage-item--${p.statut}">
         <span class="passage-statut-dot"></span>
         <div class="passage-info">
-          <span class="passage-adresse">${p.adresse || '(adresse non précisée)'}</span>
+          <span class="passage-adresse">${h(p.adresse || '(adresse non précisée)')}</span>
           <span class="passage-badge">${STATUT_PASSAGE_LABEL[p.statut] || p.statut}</span>
           ${p.statut === 'don' ? `<span class="passage-montant">${formatMontant(p.montant)} ${p.modePaiement === 'cheque' ? '📝' : p.modePaiement === 'carte' ? '💳' : '💵'}</span>` : p.statut === 'offert' ? `<span class="passage-montant" style="color:var(--bleu)">🎁 offert</span>` : ''}
         </div>
         <span class="passage-meta">
           ${p.saisiPar ? `<span class="passage-auteur" title="Saisi par ${p.saisiPar}">${p.saisiPar.slice(0,2).toUpperCase()}</span>` : ''}
-          <span class="passage-heure">${(p.datePassage || '').slice(11,16)}</span>
+          <span class="passage-heure">${heureLocale(p.datePassage)}</span>
         </span>
         <button class="passage-edit-btn" onclick="corrigerPassage('${p.id}', '${secteurId}')" title="Corriger">✏️</button>
       </div>
@@ -3365,7 +3417,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Corriger le passage</h2>
-      <p class="login-hint">Saisi à ${heure} — ${p.adresse || 'adresse non précisée'}</p>
+      <p class="login-hint">Saisi à ${heure} — ${h(p.adresse || 'adresse non précisée')}</p>
       ${(() => {
         const h = (APP._histAdresses || {})[normAdresse(p.adresse || '')];
         const r = resumeHistorique(h);
@@ -3374,7 +3426,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
       })()}
 
       <label class="label">Adresse</label>
-      <input id="cp-adresse" class="input" value="${(p.adresse || '').replace(/"/g, '&quot;')}" placeholder="Adresse / numéro">
+      <input id="cp-adresse" class="input" value="${h(p.adresse || '')}" placeholder="Adresse / numéro">
 
       <label class="label">Statut</label>
       <div class="passage-statuts" style="margin-bottom:8px;">
@@ -3393,7 +3445,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
           <button class="mode-btn ${p.modePaiement === 'carte' ? 'mode-btn--active' : ''}" data-cp-mode="carte" onclick="cpSelectMode('carte')">💳 Carte</button>
         </div>
         <label class="label">Nom donateur</label>
-        <input id="cp-donateur" class="input" value="${(p.nomDonateur || '').replace(/"/g, '&quot;')}" placeholder="Optionnel">
+        <input id="cp-donateur" class="input" value="${h(p.nomDonateur || '')}" placeholder="Optionnel">
       </div>
 
       <div id="cp-absent-details" class="absent-details ${(p.statut === 'absent' || p.statut === 'relance') ? '' : 'hidden'}">
@@ -3403,7 +3455,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
       </div>
 
       <label class="label">Note</label>
-      <input id="cp-note" class="input" value="${(p.note || '').replace(/"/g, '&quot;')}" placeholder="Optionnel">
+      <input id="cp-note" class="input" value="${h(p.note || '')}" placeholder="Optionnel">
 
       <div class="modal-actions">
         <button id="cp-save" class="btn btn--primary">💾 Enregistrer</button>
@@ -3554,7 +3606,7 @@ function majStatsTerrain(secteur, passages) {
   totalBoites -= adressesSecondaires(secteur).length;
   totalBoites -= (secteur.inhabitees || []).length;
   totalBoites = Math.max(0, totalBoites);
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = dateLocaleISO();
 
   // Traités = dons + refus (les absents restent « à faire »)
   const traites  = passages.filter(p => p.statut === "don" || p.statut === "offert" || p.statut === "refuse").length;
@@ -3708,7 +3760,7 @@ window.afficherMonBilan = async () => {
     modal.innerHTML = `
       <div class="modal-inner bilan-modal">
         <h2>📊 Mon bilan</h2>
-        <p class="bilan-sous">${APP.equipeNom}${APP.membre ? ` · ${APP.membre}` : ''}</p>
+        <p class="bilan-sous">${h(APP.equipeNom)}${APP.membre ? ` · ${h(APP.membre)}` : ''}</p>
 
         <div class="bilan-hero">
           <div class="bilan-hero-item">
@@ -3748,7 +3800,7 @@ window.afficherMonBilan = async () => {
                   <div class="brs-item">
                     <span>${new Date(r.date).toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}</span>
                     <span>${formatMontant(r.total)}</span>
-                    <span class="brs-detail">${r.especes?`💵 ${formatMontant(r.especes)}`:''}${r.cheques?` 📝 ${formatMontant(r.cheques)}`:''}${r.parQui?` · ${r.parQui}`:''}</span>
+                    <span class="brs-detail">${r.especes?`💵 ${formatMontant(r.especes)}`:''}${r.cheques?` 📝 ${formatMontant(r.cheques)}`:''}${r.parQui?` · ${h(r.parQui)}`:''}</span>
                   </div>
                 `).join('')}
               </div>` : ''}
@@ -3797,7 +3849,7 @@ window.afficherMonBilan = async () => {
   } catch(e) {
     modal.innerHTML = `<div class="modal-inner">
       <h2>Erreur</h2>
-      <p>${e.message}</p>
+      <p>${h(e.message)}</p>
       <div class="modal-actions">
         <button class="btn btn--ghost" onclick="document.getElementById('modal-bilan').classList.add('hidden')">Fermer</button>
       </div>
@@ -3867,9 +3919,9 @@ function majModeRue(secteur, passages) {
             const a = avancement[rue];
             const pct = a.total ? Math.round((a.faits/a.total)*100) : 0;
             const col = pct >= 100 ? '#16A34A' : pct > 0 ? '#EAB308' : 'var(--gris-bord)';
-            return `<button class="mr-rue" data-rue="${rue.replace(/"/g,'&quot;')}"
-                      onclick="activerRue('${rue.replace(/'/g,"\\'")}')">
-              <span class="mr-rue-nom">${rue}${partagee ? ' <em class="mr-part">partagée</em>' : ''}</span>
+            return `<button class="mr-rue" data-rue="${h(rue)}"
+                      onclick="activerRue(${ja(rue)})">
+              <span class="mr-rue-nom">${h(rue)}${partagee ? ' <em class="mr-part">partagée</em>' : ''}</span>
               <span class="mr-rue-prog" style="color:${col}">${a.faits}/${a.total}</span>
             </button>`;
           }).join('')}
@@ -3895,7 +3947,7 @@ function majModeRue(secteur, passages) {
   let numeros = [];
   try { numeros = numerosDeRue(secteur.commune, rueActive, restrict); } catch(e) {}
   if (numeros.length === 0) {
-    box.innerHTML = `<div class="mr-vide">Aucun numéro connu pour « ${rueActive} ».
+    box.innerHTML = `<div class="mr-vide">Aucun numéro connu pour « ${h(rueActive)} ».
       <button class="mr-quitter" onclick="quitterRue()">Retour</button></div>`;
     return;
   }
@@ -3960,7 +4012,7 @@ function majModeRue(secteur, passages) {
           const aDonne = hist && hist.some(x => x.statut === "don" && x.montant > 0);
           return `<button class="mr-num ${st ? 'mr-num--fait' : ''} ${aj ? 'mr-num--ajout' : ''} ${inh ? 'mr-num--inhab' : ''}"
             style="${inh ? '' : c ? `background:${c.bg};border-color:${c.bg};color:#fff` : ''}"
-            title="${inh ? 'Inhabitée' : c ? c.label : 'Non visité'}${aj ? ' — ajouté' : ''}${nbFus ? ` — regroupe ${nbFus+1} adresses` : ''}${nt ? ` — 📌 ${nt.texte}` : ''}${aDonne ? ` — a donné ${hist[0].montant.toFixed(2)} € en ${hist[0].annee}` : ''}"
+            title="${inh ? 'Inhabitée' : c ? c.label : 'Non visité'}${aj ? ' — ajouté' : ''}${nbFus ? ` — regroupe ${nbFus+1} adresses` : ''}${nt ? ` — 📌 ${h(nt.texte)}` : ''}${aDonne ? ` — a donné ${hist[0].montant.toFixed(2)} € en ${hist[0].annee}` : ''}"
             onclick="saisirNumero('${n}','${rueActive.replace(/'/g,"\\'")}')">${n}${nbFus ? `<sup>+${nbFus}</sup>` : ''}${nt ? '<i class="mr-pin">📌</i>' : ''}${aDonne ? '<i class="mr-don">€</i>' : ''}</button>`;
         }).join('')}
       </div>
@@ -3970,7 +4022,7 @@ function majModeRue(secteur, passages) {
     <div class="mr-grille-wrap">
       <div class="mr-grille-head">
         <div>
-          <div class="mr-grille-rue">${rueActive}${Array.isArray(restrict) ? ' <em class="mr-part">portion de ce secteur</em>' : ''}</div>
+          <div class="mr-grille-rue">${h(rueActive)}${Array.isArray(restrict) ? ' <em class="mr-part">portion de ce secteur</em>' : ''}</div>
           <div class="mr-grille-prog">${faits} / ${aFaire.length} traités · ${pct}%${ajouts.length ? ` · ${ajouts.length} ajouté${ajouts.length>1?'s':''}` : ''}</div>
         </div>
         <button class="mr-quitter" onclick="quitterRue()">Changer de rue</button>
@@ -4049,9 +4101,49 @@ async function rafraichirModeRue() {
   } catch(e) { console.warn("Rafraîchissement mode rue:", e); }
 }
 
+// Surligne les adresses d'une rue active sur la mini carte du secteur
+async function surlignerRueSurCarte(rue) {
+  const map = APP._terrainMap;
+  console.log("[surbrillance] rue=", rue, "map=", map);
+  if (!map) { console.warn("[surbrillance] carte non prête (APP._terrainMap absent)"); return; }
+  retirerSurlignageRue();
+
+  const secteurId = sessionStorage.getItem("secteurActif");
+  if (!secteurId) { console.warn("[surbrillance] secteurId absent"); return; }
+  const secteur = await lireSecteur(secteurId);
+  if (!secteur) { console.warn("[surbrillance] secteur introuvable"); return; }
+  console.log("[surbrillance] secteur=", secteur.nom, "commune=", secteur.commune);
+
+  const infoRue = ruesDuSecteur(secteur).find(r => r.rue === rue);
+  const restriction = infoRue ? infoRue.restriction : null;
+  console.log("[surbrillance] infoRue=", infoRue);
+  const pts = coordsRue(secteur.commune, rue, restriction);
+  console.log("[surbrillance] points trouvés=", pts.length, pts);
+  if (pts.length === 0) { console.warn("[surbrillance] aucune coordonnée pour cette rue"); return; }
+
+  const layer = L.layerGroup(
+    pts.map(p => L.circleMarker([p.lat, p.lon], {
+      radius: 7, color: "#fff", weight: 2, fillColor: "#F97316", fillOpacity: 0.95
+    }).bindTooltip(`${p.numero} ${rue}`, { direction: "top" }))
+  ).addTo(map);
+
+  APP._rueHighlightLayer = layer;
+  const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lon]));
+  if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
+  console.log("[surbrillance] calque ajouté avec", pts.length, "points");
+}
+
+function retirerSurlignageRue() {
+  if (APP._rueHighlightLayer && APP._terrainMap) {
+    APP._terrainMap.removeLayer(APP._rueHighlightLayer);
+  }
+  APP._rueHighlightLayer = null;
+}
+
 window.activerRue = (rue) => {
   APP._rueActive = rue;
   rafraichirModeRue();
+  surlignerRueSurCarte(rue);
   // Remonter à la grille
   setTimeout(() => {
     document.getElementById("mode-rue")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4061,6 +4153,7 @@ window.activerRue = (rue) => {
 window.quitterRue = () => {
   APP._rueActive = null;
   rafraichirModeRue();
+  retirerSurlignageRue();
 };
 
 // Saisie rapide d'un numéro depuis la grille
@@ -4107,7 +4200,7 @@ window.saisirNumero = async (numero, rue) => {
         if (!r || r.length === 0) return '';
         return `<p class="mn-histo">📊 Années passées : ${r.slice(0, 3).join(' · ')}</p>`;
       })()}
-      ${notePerm ? `<p class="mn-note-perm">📌 ${notePerm.texte}
+      ${notePerm ? `<p class="mn-note-perm">📌 ${h(notePerm.texte)}
         <button class="mn-lien" onclick="mnNote()">modifier</button></p>` : ''}
       <div class="mn-outils">
         ${!inhabitee ? `<button class="mn-outil" onclick="mnInhabitee(true)">🏚️ Inhabitée</button>` : ''}
@@ -4435,7 +4528,7 @@ async function renderClassement() {
             return `<div class="ranking-card">
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
-                <span class="ranking-nom">${eq.nom}</span>
+                <span class="ranking-nom">${h(eq.nom)}</span>
                 <span class="ranking-palier" title="${palier.label}">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
@@ -4473,7 +4566,7 @@ function renderPodiumPlace(eq, place, secteurs) {
   const pct = pourcentCompletionEquipe(eq.id, secteurs);
   return `<div class="podium-place ${hauteurs[place]}">
     <div class="podium-medaille">${medailles[place]}</div>
-    <div class="podium-nom">${eq.nom}</div>
+    <div class="podium-nom">${h(eq.nom)}</div>
     <div class="podium-montant">${formatMontant(eq.montant)}</div>
     <div class="podium-pct">${pct}%</div>
     <div class="podium-bloc">${place}</div>

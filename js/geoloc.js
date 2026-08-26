@@ -165,6 +165,21 @@ export function numerosDeRue(commune, rue, restriction = null) {
   return [...new Set(nums)].sort((a, b) => (parseInt(a)||9999) - (parseInt(b)||9999));
 }
 
+// Coordonnées GPS des adresses d'une rue (pour surligner sur la mini carte)
+export function coordsRue(commune, rue, restriction = null) {
+  const data = GEO_ADRESSES[commune];
+  if (!data) return [];
+  const cible = normRueG(rue);
+  const idx = data.r.findIndex(r => normRueG(r) === cible);
+  if (idx === -1) return [];
+  let pts = data.p.filter(p => p[1] === idx);
+  if (Array.isArray(restriction)) {
+    const ok = new Set(restriction.map(normRueG));
+    pts = pts.filter(p => ok.has(normRueG(p[0])));
+  }
+  return pts.map(p => ({ numero: p[0], lat: p[2], lon: p[3] }));
+}
+
 // Nombre total de boîtes aux lettres d'un secteur (somme de ses rues)
 // secteur : objet avec .commune et .rues[]
 export function nbFoyersSecteur(secteur) {
